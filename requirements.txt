@@ -1,0 +1,4 @@
+# The shell itself needs only the Python standard library.
+# These packages are for the tests and the lint check.
+pytest>=7.0
+pyflakes>=3.0
