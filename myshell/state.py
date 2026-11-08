@@ -1,10 +1,10 @@
 """Shell state: aliases, variables, jobs, history and the last exit status."""
 import os
-import readline
 import subprocess
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
+from . import history
 from .jobs import JobControl
 
 if TYPE_CHECKING:
@@ -62,14 +62,14 @@ class ShellState:
                 self.background_jobs.remove(job)
 
     def load_history(self) -> None:
-        readline.set_history_length(1000)
+        history.set_limit()
         try:
-            readline.read_history_file(self.history_file)
-        except FileNotFoundError:
+            history.read(self.history_file)
+        except (OSError, ValueError):
             pass
 
     def save_history(self) -> None:
         try:
-            readline.write_history_file(self.history_file)
+            history.write(self.history_file)
         except Exception:
             pass

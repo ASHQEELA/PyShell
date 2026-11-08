@@ -5,10 +5,10 @@
     python -m myshell script.sh    run a script file and exit
 """
 import os
-import readline
 import sys
 from typing import List, Optional
 
+from . import history
 from .builtins import run_script
 from .completion import setup_readline
 from .errors import ShellError, ShellExit
@@ -69,8 +69,8 @@ def run_interactive(state: ShellState) -> int:
                 continue
             if not line.strip():
                 continue
-            if not interactive:
-                readline.add_history(line)  # on a terminal, input() records the line itself
+            if not interactive or not history.records_input():
+                history.add(line)  # otherwise input() records the line itself
 
             def read_more() -> Optional[str]:
                 try:

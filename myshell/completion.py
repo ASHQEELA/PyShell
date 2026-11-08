@@ -1,9 +1,9 @@
 """Tab completion for commands, paths and variables."""
 import os
 import re
-import readline
 from typing import List, Optional
 
+from . import history
 from .builtins import BUILTINS
 from .state import ShellState
 
@@ -18,6 +18,9 @@ def escape_word(text: str) -> str:
 
 def unescape_word(text: str) -> str:
     return re.sub(r"\\(.)", r"\1", text)
+
+
+readline = history.readline_module()  # None when there is no readline
 
 
 class Completer:
@@ -83,6 +86,8 @@ class Completer:
 
 
 def setup_readline(state: ShellState) -> None:
+    if readline is None:
+        return
     try:
         readline.set_completer_delims(" \t\n;|&<>")
         readline.set_completer(Completer(state))

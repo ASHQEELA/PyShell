@@ -145,4 +145,4 @@ Example `~/.myshellrc`:
 - Here-documents do not work inside multi-line `if` and loop blocks.
 - Pipes, redirects and `&` after `fi` or `done` are errors.
 - `test` has no `-a`, `-o` or parentheses.
-- On Windows, command substitution and job control are unavailable.
+- On Windows, command substitution and job control are unavailable. History uses the shell's own list there, because the Windows readline lacks some functions. Many guide examples need Unix tools such as `tr`, `cat` and `head`, so some lessons fail on Windows.

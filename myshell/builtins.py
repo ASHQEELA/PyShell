@@ -1,11 +1,10 @@
 """Builtin commands. Each takes (state, args, stdout, stderr) and returns a status."""
 import os
 import re
-import readline
 import shutil
 from typing import Callable, Dict, List, Optional, TextIO
 
-from . import compat
+from . import compat, history
 from .errors import BreakLoop, ContinueLoop, ShellError, ShellExit
 from .state import ShellState
 
@@ -354,18 +353,18 @@ def run_script(state: ShellState, text: str, label: str, stderr: TextIO) -> int:
 
 def builtin_history(state: ShellState, args: List[str], stdout: TextIO, stderr: TextIO) -> int:
     """history [N] | -c | -d N | -w [file] | -r [file]"""
-    total = readline.get_current_history_length()
+    total = history.length()
     if not args or args[0].isdigit():
         if len(args) > 1:
             print("history: too many arguments", file=stderr)
             return 1
         start = max(0, total - int(args[0])) if args else 0
         for k in range(start + 1, total + 1):
-            print(f"{k:5d}  {readline.get_history_item(k)}", file=stdout)
+            print(f"{k:5d}  {history.item(k)}", file=stdout)
         return 0
     flag = args[0]
     if flag == "-c":
-        readline.clear_history()
+        history.clear()
         return 0
     if flag == "-d":
         if len(args) < 2:
@@ -378,15 +377,15 @@ def builtin_history(state: ShellState, args: List[str], stdout: TextIO, stderr: 
         if not 1 <= position <= total:
             print(f"history: {position}: history position out of range", file=stderr)
             return 1
-        readline.remove_history_item(position - 1)
+        history.remove(position)
         return 0
     if flag in ("-w", "-r"):
         path = args[1] if len(args) > 1 else state.history_file
         try:
             if flag == "-w":
-                readline.write_history_file(path)
+                history.write(path)
             else:
-                readline.read_history_file(path)
+                history.read(path)
         except OSError as e:
             print(f"history: {path}: {e.strerror}", file=stderr)
             return 1

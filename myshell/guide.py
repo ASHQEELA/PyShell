@@ -12,7 +12,6 @@ Set GUIDE=off in ~/.myshellrc to start without Pip."""
 import difflib
 import os
 import random
-import readline
 import shutil
 import sys
 import tempfile
@@ -20,6 +19,7 @@ import textwrap
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional, TextIO
 
+from . import history
 from .state import ShellState
 
 # --- the character ---------------------------------------------------------
@@ -279,11 +279,10 @@ def make_ask() -> Ask:
     """Read one line. Returns None at end of input. Answers stay out of the history."""
     def ask(prompt: str) -> Optional[str]:
         try:
-            before = readline.get_current_history_length()
+            before = history.length()
             text = input(prompt)
-            after = readline.get_current_history_length()
-            if after > before:
-                readline.remove_history_item(after - 1)
+            if history.records_input() and history.length() > before:
+                history.forget_last()
             return text.strip()
         except EOFError:
             return None
