@@ -1,0 +1,37 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Virtual environments (uv creates .venv)
+.venv/
+venv/
+env/
+
+# Test, lint and type-check caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build output
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Shell history and local settings
+.custom_shell_history
+.myshellrc
+
+# Archives made for sharing
+*.zip
+
+# Editors and operating systems
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+Desktop.ini
