@@ -1,5 +1,5 @@
 # Python bytecode
-./myshell/__pycache__/
+__pycache__/
 *.py[cod]
 
 # Virtual environments (uv creates .venv)
