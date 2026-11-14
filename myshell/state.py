@@ -2,7 +2,7 @@
 import os
 import subprocess
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set, TextIO
 
 from . import history
 from .jobs import JobControl
@@ -23,6 +23,24 @@ class ShellState:
     executor: Optional["Executor"] = None
     missing_command: Optional[str] = None  # set when a lone command was not found
     loop_depth: int = 0  # loops running right now. break and continue need one
+    stdin: Optional[TextIO] = None  # input stream for the builtin that runs now. None means sys.stdin
+    functions: Dict[str, list] = field(default_factory=dict)  # name -> body (a list of ListItem)
+    positional: List[str] = field(default_factory=list)  # $1, $2, ... of the current function or script
+    script_name: str = "myshell"  # $0
+    func_depth: int = 0  # functions and sourced files running right now. return needs one
+    local_frames: List[Dict[str, Optional[str]]] = field(default_factory=list)  # saved values for `local`
+    options: Set[str] = field(default_factory=set)  # set -e, -u, -x as "errexit", "nounset", "xtrace"
+    no_errexit: int = 0  # above 0 while a condition runs, where a failure must not stop the script
+    traps: Dict[str, str] = field(default_factory=dict)  # signal name or EXIT -> command text
+    pending_traps: List[str] = field(default_factory=list)  # signals caught, not yet handled
+    keep_going: bool = False  # tests and the guide set this so an expansion error never ends the shell
+    last_duration: float = 0.0  # seconds the last interactive command took
+    progress_file: str = field(default_factory=lambda: os.path.expanduser("~/.myshell_progress.json"))
+
+    def input_stream(self) -> TextIO:
+        """Where a builtin reads its input: a redirect or pipe if there is one, else the terminal."""
+        import sys
+        return self.stdin if self.stdin is not None else sys.stdin
 
     # --- variables ---
     # Exported variables live in os.environ, so child processes inherit them.
@@ -53,6 +71,17 @@ class ShellState:
         """Run one line in this shell. Used by source, scripts and $(...).
         read_line supplies the lines of a here-document body."""
         return self.executor.run_line(line, read_line)
+
+    def run_pending_traps(self) -> None:
+        """Run the trap commands for signals caught since the last check."""
+        while self.pending_traps:
+            cmd = self.traps.get(self.pending_traps.pop(0))
+            if cmd:
+                saved = self.last_status
+                try:
+                    self.execute(cmd)
+                finally:
+                    self.last_status = saved
 
     def reap_jobs(self) -> None:
         self.jobs.notify()

@@ -19,8 +19,8 @@ class TestParse:
         assert isinstance(node, ForClause) and node.name == "x"
         assert [t.text for t in node.words] == ["1", "$y", "z w"]
 
-    def test_for_without_in_has_no_words(self):
-        assert parse(lex("for x; do b; done"))[0].pipeline.words == []
+    def test_for_without_in_uses_the_arguments(self):
+        assert parse(lex("for x; do b; done"))[0].pipeline.words is None
 
     def test_commands_inside_are_visible(self):
         names = [c.argv[0].text for c in iter_commands(parse(lex("while a; do b; done; for x in 1; do c; done")))]

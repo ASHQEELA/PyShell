@@ -53,6 +53,31 @@ class TestOwnList:
         fallback.add("two")
         assert fallback.length() == 2 and fallback.item(2) == "two"
 
+    def test_entries_oldest_first(self, fallback):
+        for w in ("a", "b", "c"):
+            fallback.add(w)
+        got = fallback.entries()
+        assert got == ["a", "b", "c"]
+        got.append("x")  # a copy
+        assert fallback.length() == 3
+
+    def test_use_builtin_switches_mode_and_keeps_readline_entries(self, monkeypatch):
+        import readline
+        monkeypatch.setattr(history, "native", True)
+        monkeypatch.setattr(history, "_entries", [])
+        readline.clear_history()
+        readline.add_history("one")
+        readline.add_history("two")
+        try:
+            assert history.entries() == ["one", "two"]
+            history.use_builtin()
+            assert history.native is False and history.records_input() is False
+            assert history.entries() == ["one", "two"]
+            history.add("three")
+            assert history.item(3) == "three"
+        finally:
+            readline.clear_history()
+
     def test_input_is_not_recorded_by_input(self, fallback):
         assert fallback.records_input() is False
 

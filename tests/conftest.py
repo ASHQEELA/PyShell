@@ -34,7 +34,7 @@ class Result:
 
 def clean_env(home: Path, extra=None) -> dict:
     env = {k: v for k, v in os.environ.items() if k not in ("NO_COLOR", "PS1")}
-    env.update(HOME=str(home), TERM="dumb", PYTHONPATH=str(ROOT))
+    env.update(HOME=str(home), TERM="dumb", PYTHONPATH=str(ROOT), MYSHELL_EDITOR="basic", COLUMNS="80")
     if extra:
         env.update(extra)
     return env

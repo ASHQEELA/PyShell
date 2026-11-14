@@ -1,10 +1,10 @@
 """Tab completion for commands, paths and variables."""
 import os
 import re
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from . import history
-from .builtins import BUILTINS
+from .builtins import builtin_names
 from .state import ShellState
 
 
@@ -36,9 +36,14 @@ class Completer:
         return self.matches[index] if index < len(self.matches) else None
 
     def candidates(self, text: str) -> List[str]:
+        before = readline.get_line_buffer()[:readline.get_begidx()]
+        return self.candidates_for(text, before)
+
+    def candidates_for(self, text: str, before: str) -> List[str]:
+        """Matches for the word `text`, which follows the line part `before`."""
         if text.startswith("$"):
             return self.variable_matches(text)
-        before = readline.get_line_buffer()[:readline.get_begidx()].rstrip()
+        before = before.rstrip()
         at_command = (before == "" or (before.endswith(COMMAND_PREFIXES)
                                        and not before.endswith(">")))
         if at_command and "/" not in text and not text.startswith("~"):
@@ -50,7 +55,9 @@ class Completer:
         return sorted("$" + n for n in names if ("$" + n).startswith(text))
 
     def command_matches(self, text: str) -> List[str]:
-        names = {n for n in list(BUILTINS) + list(self.state.aliases) if n.startswith(text)}
+        functions = getattr(self.state, "functions", None) or {}
+        names = {n for n in builtin_names() + list(self.state.aliases) + list(functions)
+                 if n.startswith(text)}
         for directory in os.environ.get("PATH", "").split(os.pathsep):
             try:
                 entries = os.listdir(directory or ".")
@@ -83,6 +90,37 @@ class Completer:
             suffix = "/" if os.path.isdir(os.path.join(directory, name)) else ""
             result.append(escape_word(prefix + name).replace("\\~", "~") + suffix)
         return result
+
+
+WORD_DELIMS = " \t\n;|&<>"
+
+
+def word_start(line: str) -> int:
+    """Index where the word at the end of `line` begins. A backslash keeps the next
+    character in the word, so "my\\ fi" is one word."""
+    start = 0
+    i = 0
+    while i < len(line):
+        c = line[i]
+        if c == "\\":
+            i += 2
+            continue
+        i += 1
+        if c in WORD_DELIMS:
+            start = i
+    return min(start, len(line))
+
+
+def complete_line(state: ShellState, line_before_cursor: str) -> Tuple[int, List[str]]:
+    """Completions for the word ending at the cursor, without readline.
+    Returns (index where that word starts, candidates that replace it)."""
+    start = word_start(line_before_cursor)
+    text = line_before_cursor[start:]
+    try:
+        found = Completer(state).candidates_for(text, line_before_cursor[:start])
+    except Exception:
+        found = []
+    return start, found
 
 
 def setup_readline(state: ShellState) -> None:

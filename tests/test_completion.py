@@ -4,7 +4,7 @@ import stat
 
 import pytest
 
-from myshell.completion import Completer, escape_word, unescape_word
+from myshell.completion import Completer, complete_line, escape_word, unescape_word
 
 
 @pytest.fixture
@@ -122,3 +122,47 @@ class TestWhatGetsCompleted:
 def test_escape_round_trip():
     for text in ["plain", "with space", "a&b", "x;y", "quo'te", 'dq"x', "paren(s)", "$var"]:
         assert unescape_word(escape_word(text)) == text
+
+
+class TestCompleteLine:
+    def test_command_at_start(self, state):
+        start, found = complete_line(state, "ec")
+        assert start == 0 and "echo" in found
+
+    def test_path_argument(self, tree, state):
+        assert complete_line(state, "cat al") == (4, ["alpha.txt", "alpine/"])
+
+    @pytest.mark.parametrize("line", ["echo hi | ec", "true && ec", "true || ec", "true; ec",
+                                      "sleep 1 & ec"])
+    def test_command_after_operator(self, state, line):
+        start, found = complete_line(state, line)
+        assert start == len(line) - 2 and "echo" in found
+
+    @pytest.mark.parametrize("line", ["echo x > al", "cat < al", "echo x 2> al"])
+    def test_redirect_target_is_a_path(self, tree, state, line):
+        start, found = complete_line(state, line)
+        assert start == len(line) - 2 and found == ["alpha.txt", "alpine/"]
+
+    def test_variable(self, state):
+        state.variables["ZZ_ONLY"] = "1"
+        assert complete_line(state, "echo $ZZ_O") == (5, ["$ZZ_ONLY"])
+
+    def test_escaped_space_stays_in_the_word(self, tree, state):
+        assert complete_line(state, "cat my\\ f") == (4, ["my\\ file"])
+
+    def test_empty_word_lists_directory(self, tree, state):
+        start, found = complete_line(state, "cat ")
+        assert start == 4 and "alpha.txt" in found and ".hidden" not in found
+
+    def test_functions_and_aliases_are_commands(self, state):
+        state.functions["zzfunc"] = []
+        state.aliases["zzalias"] = "ls"
+        assert complete_line(state, "zz") == (0, ["zzalias", "zzfunc"])
+
+    def test_nothing_found(self, state):
+        assert complete_line(state, "cat /no/such/dir/x") == (4, [])
+
+    def test_same_answers_as_readline_completer(self, tree, state, monkeypatch):
+        line = "cat al"
+        set_line(monkeypatch, line, 4)
+        assert Completer(state).candidates("al") == complete_line(state, line)[1]

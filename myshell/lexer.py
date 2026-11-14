@@ -6,6 +6,7 @@ from .errors import ShellSyntaxError
 
 
 WORD, PIPE, AND, OR, SEMI, BG, REDIR = "WORD", "PIPE", "AND", "OR", "SEMI", "BG", "REDIR"
+DSEMI = "DSEMI"  # ;; ends a case arm
 
 # Longest operators first so "&>>" wins over "&>" and "&".
 OPERATORS: List[Tuple[str, str]] = [
@@ -14,11 +15,11 @@ OPERATORS: List[Tuple[str, str]] = [
     ("<<", REDIR),
     ("&&", AND), ("||", OR), ("&>", REDIR), ("2>", REDIR), ("1>", REDIR),
     (">>", REDIR), (">&2", REDIR), (">&1", REDIR), ("<", REDIR),
-    ("|", PIPE), (";", SEMI), ("&", BG), (">", REDIR),
+    ("|", PIPE), (";;", DSEMI), (";", SEMI), ("&", BG), (">", REDIR),
 ]
 # Operators that start with a digit only count at the start of a word.
 FD_OPERATORS = ("2>>", "1>>", "2>&1", "1>&2", "2>", "1>")
-COMMAND_START_AFTER = (PIPE, AND, OR, SEMI, BG)
+COMMAND_START_AFTER = (PIPE, AND, OR, SEMI, BG, DSEMI)
 
 
 @dataclass
@@ -68,6 +69,38 @@ def find_matching_paren(text: str, start: int) -> int:
                 return i
         i += 1
     raise ShellSyntaxError("unterminated command substitution")
+
+
+def find_matching_brace(text: str, start: int) -> int:
+    """text[start] is '{' of a ${...} expansion. Return the index of the matching '}'.
+    Quotes and nested $(...) are skipped, nested braces count."""
+    depth = 0
+    quote = None
+    i = start
+    while i < len(text):
+        c = text[i]
+        if quote == "'":
+            if c == "'":
+                quote = None
+        elif quote == '"':
+            if c == "\\":
+                i += 1
+            elif c == '"':
+                quote = None
+        elif c == "\\":
+            i += 1
+        elif c in "'\"":
+            quote = c
+        elif c == "$" and text.startswith("$(", i):
+            i = find_matching_paren(text, i + 1)
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    raise ShellSyntaxError("unterminated parameter expansion")
 
 
 def read_backticks(text: str, start: int) -> Tuple[str, int]:
@@ -134,6 +167,10 @@ def lex(line: str) -> List[Token]:
                 end = find_matching_paren(line, i + 1)
                 buf += line[i:end + 1]  # kept whole. Expansion runs it later.
                 i = end + 1
+            elif c == "$" and line.startswith("${", i):
+                end = find_matching_brace(line, i + 1)
+                buf += line[i:end + 1]  # kept whole. Expansion runs it later.
+                i = end + 1
             elif c == "`":
                 inner, end = read_backticks(line, i)
                 buf += "$(" + inner + ")"  # same as $(...) from here on
@@ -157,6 +194,11 @@ def lex(line: str) -> List[Token]:
                 i += 1
             elif c == "$" and line.startswith("$(", i):
                 end = find_matching_paren(line, i + 1)
+                buf += line[i:end + 1]  # kept whole. Expansion runs it later.
+                has_word = True
+                i = end + 1
+            elif c == "$" and line.startswith("${", i):
+                end = find_matching_brace(line, i + 1)
                 buf += line[i:end + 1]  # kept whole. Expansion runs it later.
                 has_word = True
                 i = end + 1

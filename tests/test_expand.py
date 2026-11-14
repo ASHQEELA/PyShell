@@ -175,10 +175,14 @@ class TestCommandSubstitution:
     def test_empty_output_disappears_when_unquoted(self, state):
         assert ex("a $(true) b", state) == ["a", "b"]
 
-    def test_not_supported_without_fork(self, state, monkeypatch):
+    def test_works_without_fork(self, state, monkeypatch):
         monkeypatch.setattr(compat, "HAS_FORK", False)
-        with pytest.raises(ShellError, match="not supported"):
-            ex("$(echo hi)", state)
+        assert ex("$(echo hi)", state) == ["hi"]
+
+    def test_without_fork_changes_do_not_leak_out(self, state, monkeypatch):
+        monkeypatch.setattr(compat, "HAS_FORK", False)
+        state.set_variable("X", "outer")
+        assert ex("$(X=inner; echo $X) $X", state) == ["inner", "outer"]
 
 
 class TestArithmetic:

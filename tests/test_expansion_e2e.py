@@ -114,9 +114,9 @@ class TestCommandSubstitution:
     def test_large_output(self, sh):
         assert sh('echo "$(seq 1 20000)" | wc -l').out.strip() == "20000"
 
-    def test_not_available_without_fork(self, sh):
+    def test_works_without_fork(self, sh):
         r = sh("echo $(echo hi)", portable=True)
-        assert "not supported on this platform" in r.err
+        assert r.out == "hi\n"
 
 
 class TestSyntaxErrors:

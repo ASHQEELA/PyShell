@@ -1,37 +1,31 @@
-# Python bytecode
+# Python
 __pycache__/
 *.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
 
-# Virtual environments (uv creates .venv)
+# Environments
 .venv/
 venv/
 env/
 
-# Test, lint and type-check caches
+# Test and lint caches
 .pytest_cache/
+.coverage
+htmlcov/
 .ruff_cache/
 .mypy_cache/
-.coverage
-.coverage.*
-htmlcov/
 
-# Build output
-build/
-dist/
-*.egg-info/
-.eggs/
-
-# Shell history and local settings
-.custom_shell_history
-.myshellrc
-
-# Archives made for sharing
-*.zip
-
-# Editors and operating systems
-.vscode/
+# Editors and systems
 .idea/
+.vscode/
 *.swp
 .DS_Store
 Thumbs.db
-Desktop.ini
+
+# Shell state files that may land in the project folder
+.custom_shell_history
+.myshellrc
+.myshell_progress.json

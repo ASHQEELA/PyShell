@@ -31,3 +31,11 @@ class BreakLoop(LoopControl):
 
 class ContinueLoop(LoopControl):
     pass
+
+
+class ReturnFromFunction(Exception):
+    """Raised by return. The function call or sourced file catches it."""
+
+    def __init__(self, status: int):
+        super().__init__(status)
+        self.status = status

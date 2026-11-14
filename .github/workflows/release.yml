@@ -1,0 +1,20 @@
+name: Release
+
+# Push a tag such as v0.2.0 to publish. Set up a trusted publisher for this
+# repository on pypi.org first (project myshell, workflow release.yml).
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv build
+      - run: uv publish --trusted-publishing always

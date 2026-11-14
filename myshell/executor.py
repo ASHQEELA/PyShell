@@ -1,24 +1,26 @@
 """Executor: runs the parsed tree with fork and pipes, or with subprocess."""
+import io
 import os
 import signal
 import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
 
 from . import compat
 from .aliases import expand_aliases
-from .builtins import BUILTINS
-from .errors import ShellError, ShellExit
-from .expand import (expand_heredoc, expand_tokens, expand_value, expand_word,
-                     split_assignment)
+from .builtins import find_builtin
+from .errors import ReturnFromFunction, ShellError, ShellExit
+from .expand import (expand_heredoc, expand_pattern, expand_tokens, expand_value, expand_word,
+                     glob_match, split_assignment)
 from .heredoc import ReadLine, read_heredoc_body
 from .jobs import CHILD_RESET_SIGNALS
 from .errors import BreakLoop, ContinueLoop, ShellSyntaxError
 from .lexer import SEMI, WORD, Token, lex
-from .parser import (ForClause, IfClause, ListItem, WhileClause, Pipeline, Redirect, compound_open,
-                     is_word, iter_commands, parse)
+from .parser import (CaseClause, ForClause, FuncDef, Group, IfClause, ListItem, WhileClause,
+                     Pipeline, Redirect, compound_open, is_word, iter_commands, parse)
 from .state import ShellState
 
 
@@ -90,7 +92,7 @@ class Executor:
                 raise ShellSyntaxError("unexpected end of file")
             extra = lex(more)
             last = tokens[-1]
-            joins = last.kind == WORD and not is_word(last, ("then", "else", "elif", "if", "do", "while", "until"))
+            joins = last.kind == WORD and not is_word(last, ("then", "else", "elif", "if", "do", "while", "until", "{"))
             if extra and joins:
                 tokens.append(Token(SEMI, [(";", "plain")]))
             tokens.extend(extra)
@@ -103,8 +105,9 @@ class Executor:
 
     # --- lists ---
     def run_list(self, items: List[ListItem]) -> int:
-        status = self.state.last_status
-        for item in items:
+        state = self.state
+        status = state.last_status
+        for idx, item in enumerate(items):
             if item.op == "&&" and status != 0:
                 continue
             if item.op == "||" and status == 0:
@@ -117,21 +120,99 @@ class Executor:
                     status = self.run_while(node)
                 elif isinstance(node, ForClause):
                     status = self.run_for(node)
+                elif isinstance(node, CaseClause):
+                    status = self.run_case(node)
+                elif isinstance(node, Group):
+                    status = self.run_list(node.body)
+                elif isinstance(node, FuncDef):
+                    state.functions[node.name] = node.body
+                    status = 0
                 else:
                     status = self.run_pipeline(node)
             except ShellError as e:
                 print(e, file=sys.stderr)
                 status = 2
-            self.state.last_status = status
+            state.last_status = status
+            if state.pending_traps:
+                state.run_pending_traps()
+            if status != 0 and "errexit" in state.options and state.no_errexit == 0:
+                nxt = items[idx + 1] if idx + 1 < len(items) else None
+                if nxt is None or nxt.op not in ("&&", "||"):
+                    raise ShellExit(status)
         return status
+
+    def run_condition(self, items: List[ListItem]) -> int:
+        """Run the test of an if or while. A failure here must not trigger set -e."""
+        self.state.no_errexit += 1
+        try:
+            return self.run_list(items)
+        finally:
+            self.state.no_errexit -= 1
 
     def run_if(self, node: IfClause) -> int:
         for cond, body in node.clauses:
-            if self.run_list(cond) == 0:
+            if self.run_condition(cond) == 0:
                 return self.run_list(body)
         if node.else_body is not None:
             return self.run_list(node.else_body)
         return 0
+
+    def run_case(self, node: CaseClause) -> int:
+        word = "".join(expand_word(node.word, self.state, globbing=False,
+                                   splitting=False, braces=False))
+        for patterns, body in node.arms:
+            for pattern in patterns:
+                if glob_match(expand_pattern(pattern, self.state), word):
+                    return self.run_list(body) if body else 0
+        return 0
+
+    # --- functions ---
+    def call_function(self, name: str, args: List[str]) -> int:
+        state = self.state
+        if state.func_depth >= 200:
+            raise ShellError(f"{name}: maximum function nesting level exceeded")
+        body = state.functions[name]
+        saved = state.positional
+        state.positional = list(args)
+        frame: Dict[str, Optional[str]] = {}
+        state.local_frames.append(frame)
+        state.func_depth += 1
+        try:
+            return self.run_list(body)
+        except ReturnFromFunction as r:
+            return r.status
+        finally:
+            state.func_depth -= 1
+            state.local_frames.pop()
+            for var, old in frame.items():
+                if old is None:
+                    state.unset_variable(var)
+                else:
+                    state.set_variable(var, old)
+            state.positional = saved
+
+    def run_argv(self, argv: List[str]) -> int:
+        """Run one command whose words are already expanded. Used by env and exec."""
+        name = argv[0]
+        if name in self.state.functions:
+            return self.call_function(name, argv[1:])
+        func = find_builtin(name)
+        if func is not None:
+            return func(self.state, argv[1:], sys.stdout, sys.stderr)
+        return self.dispatch([argv], [None], [[]], False)
+
+    def dispatch(self, argvs, envs, ops, background) -> int:
+        try:
+            if compat.HAS_FORK:
+                command = " | ".join(" ".join(a) for a in argvs)
+                return self.run_forked(argvs, envs, ops, background, command)
+            return self.run_portable(argvs, envs, ops, background)
+        except OSError as e:
+            print(f"{e.filename or 'error'}: {e.strerror}", file=sys.stderr)
+            return 1
+
+    def is_inprocess(self, name: str) -> bool:
+        return name in self.state.functions or find_builtin(name) is not None
 
     def run_body(self, body: List[ListItem]) -> Optional[int]:
         """Run one pass of a loop. Returns the status, or None when the loop must stop.
@@ -152,7 +233,7 @@ class Executor:
         self.state.loop_depth += 1
         try:
             while True:
-                cond = self.run_list(node.cond)
+                cond = self.run_condition(node.cond)
                 if cond == SIGINT_STATUS:
                     return cond  # Ctrl+C killed the command, so the loop stops too
                 if (cond == 0) == node.until:
@@ -169,7 +250,8 @@ class Executor:
 
     def run_for(self, node: ForClause) -> int:
         status = 0
-        values = expand_tokens(node.words, self.state)
+        values = (list(self.state.positional) if node.words is None
+                  else expand_tokens(node.words, self.state))
         self.state.loop_depth += 1
         try:
             for value in values:
@@ -204,6 +286,10 @@ class Executor:
             word_tokens.append(rest)
 
         argvs = [expand_tokens(t, self.state) for t in word_tokens]
+        if "xtrace" in self.state.options:
+            for argv in argvs:
+                if argv:
+                    print("+ " + " ".join(argv), file=sys.stderr)
         envs: List[Optional[Dict[str, str]]] = [
             {name: expand_value(tok, self.state) for name, tok in found} or None
             for found in assigns
@@ -225,9 +311,13 @@ class Executor:
                     for name, value in (envs[0] or {}).items():
                         self.state.set_variable(name, value)
                     return 0
-                # A lone builtin runs in the shell itself, so cd, alias and exit work.
-                if argv[0] in BUILTINS and (not pipeline.background or not compat.HAS_FORK):
-                    return self.run_builtin(argv[0], argv[1:], ops[0], envs[0])
+                # A lone builtin or function runs in the shell itself, so cd, alias and exit work.
+                if not pipeline.background or not compat.HAS_FORK:
+                    if argv[0] in self.state.functions:
+                        return self.run_function(argv[0], argv[1:], ops[0], envs[0])
+                    func = find_builtin(argv[0])
+                    if func is not None:
+                        return self.run_builtin(func, argv[1:], ops[0], envs[0])
             if any(not argv for argv in argvs):
                 return 0
             if compat.HAS_FORK:
@@ -259,22 +349,82 @@ class Executor:
         return ops
 
     # --- a lone builtin runs inside the shell process ---
-    def run_builtin(self, name: str, args: List[str], ops: List[RedirectOp],
+    def run_builtin(self, func, args: List[str], ops: List[RedirectOp],
                     env: Optional[Dict[str, str]] = None) -> int:
         opened: list = []
         saved = {k: os.environ.get(k) for k in env} if env else {}
+        saved_stdin = self.state.stdin
         try:
-            table: Dict[int, object] = {0: sys.stdin, 1: sys.stdout, 2: sys.stderr}
+            table: Dict[int, object] = {0: self.state.input_stream(), 1: sys.stdout, 2: sys.stderr}
             apply_redirects(ops, table, opened)
             if env:
                 os.environ.update(env)  # NAME=value before a builtin lasts for that call only
-            return BUILTINS[name](self.state, args, table[1], table[2])
+            self.state.stdin = table[0]
+            return func(self.state, args, table[1], table[2])
         finally:
-            for k, v in saved.items():
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
+            self.state.stdin = saved_stdin
+            self.restore_env(saved)
+            for f in opened:
+                f.close()
+
+    @staticmethod
+    def restore_env(saved: Dict[str, Optional[str]]) -> None:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def run_function(self, name: str, args: List[str], ops: List[RedirectOp],
+                     env: Optional[Dict[str, str]] = None) -> int:
+        """A function runs in the shell. Redirects apply to file descriptors 0, 1 and 2,
+        so the programs it starts see them too."""
+        saved = {k: os.environ.get(k) for k in env} if env else {}
+        try:
+            if env:
+                os.environ.update(env)
+            with self.fd_redirects(ops):
+                return self.call_function(name, args)
+        finally:
+            self.restore_env(saved)
+
+    @contextmanager
+    def fd_redirects(self, ops: List[RedirectOp]):
+        if not ops:
+            yield
+            return
+        opened: list = []
+        table: Dict[int, object] = {0: 0, 1: 1, 2: 2}
+        copies: List[int] = []
+        saved: Dict[int, int] = {}
+        try:
+            apply_redirects(ops, table, opened)
+            sys.stdout.flush()
+            sys.stderr.flush()
+            sources: Dict[int, int] = {}
+            for target in (0, 1, 2):
+                handle = table[target]
+                src = handle if isinstance(handle, int) else handle.fileno()
+                if src in (0, 1, 2) and src != target:
+                    src = os.dup(src)  # copy first, so 2>&1 > f keeps the old stdout
+                    copies.append(src)
+                sources[target] = src
+            for target in (0, 1, 2):
+                if sources[target] != target:
+                    saved[target] = os.dup(target)
+                    os.dup2(sources[target], target)
+            yield
+        finally:
+            try:
+                sys.stdout.flush()
+                sys.stderr.flush()
+            except Exception:
+                pass
+            for target, fd in saved.items():
+                os.dup2(fd, target)
+                os.close(fd)
+            for fd in copies:
+                os.close(fd)
             for f in opened:
                 f.close()
 
@@ -395,13 +545,23 @@ class Executor:
             sys.stdout = os.fdopen(1, "w", closefd=False)
             sys.stderr = os.fdopen(2, "w", buffering=1, closefd=False)
 
-            if argv[0] in BUILTINS:
+            sys.stdin = os.fdopen(0, "r", closefd=False)
+            self.state.stdin = None
+            self.state.jobs.interactive = False
+            func = find_builtin(argv[0]) if argv[0] not in self.state.functions else None
+            if func is not None or argv[0] in self.state.functions:
                 if env:
                     os.environ.update(env)  # this is a child, so no need to restore
                 try:
-                    status = BUILTINS[argv[0]](self.state, argv[1:], sys.stdout, sys.stderr)
+                    if func is not None:
+                        status = func(self.state, argv[1:], sys.stdout, sys.stderr)
+                    else:
+                        status = self.call_function(argv[0], argv[1:])
                 except ShellExit as e:
                     status = e.code
+                except ShellError as e:
+                    print(e, file=sys.stderr)
+                    status = 2
             elif env:
                 os.execvpe(argv[0], argv, {**os.environ, **env})
             else:
@@ -434,6 +594,8 @@ class Executor:
                      ops: List[List[RedirectOp]], background: bool) -> int:
         sys.stdout.flush()
         sys.stderr.flush()
+        if any(self.is_inprocess(c[0]) for c in cmds):
+            return self.run_portable_buffered(cmds, envs, ops)
         n = len(cmds)
         opened: list = []
         processes: List[subprocess.Popen] = []
@@ -503,3 +665,88 @@ class Executor:
         if last_failure is not None:
             return last_failure
         return exit_status(processes[-1].returncode)
+
+    def run_portable_buffered(self, cmds: List[List[str]], envs: List[Optional[Dict[str, str]]],
+                              ops: List[List[RedirectOp]]) -> int:
+        """A pipeline with builtins or functions, where there is no fork. Stages run one
+        after another and hand their whole output to the next stage."""
+        n = len(cmds)
+        opened: list = []
+        status = 0
+        data: Optional[bytes] = None  # output of the previous stage
+        try:
+            tables: List[Dict[int, object]] = []
+            for i in range(n):
+                table: Dict[int, object] = {
+                    0: None,
+                    1: subprocess.PIPE if i < n - 1 else sys.stdout,
+                    2: sys.stderr,
+                }
+                apply_redirects(ops[i], table, opened)
+                tables.append(table)
+            for i, argv in enumerate(cmds):
+                table = tables[i]
+                piped = table[1] == subprocess.PIPE
+                if self.is_inprocess(argv[0]):
+                    if table[0] is not None:
+                        stdin = table[0]
+                    elif data is not None:
+                        stdin = io.StringIO(data.decode(errors="replace"))
+                    else:
+                        stdin = sys.stdin
+                    out = io.StringIO() if piped else table[1]
+                    err = out if table[2] == subprocess.STDOUT else table[2]
+                    saved = {k: os.environ.get(k) for k in envs[i]} if envs[i] else {}
+                    saved_stdin = self.state.stdin
+                    self.state.stdin = stdin
+                    try:
+                        if envs[i]:
+                            os.environ.update(envs[i])
+                        func = None if argv[0] in self.state.functions else find_builtin(argv[0])
+                        if func is not None:
+                            status = func(self.state, argv[1:], out, err)
+                        else:
+                            status = self.call_function(argv[0], argv[1:])
+                    except ShellExit as e:
+                        status = e.code
+                    finally:
+                        self.state.stdin = saved_stdin
+                        self.restore_env(saved)
+                    try:
+                        out.flush()
+                    except Exception:
+                        pass
+                    data = out.getvalue().encode() if piped else None
+                    continue
+                feed = table[0] is None and data is not None
+                try:
+                    p = subprocess.Popen(
+                        argv,
+                        stdin=subprocess.PIPE if feed else table[0],
+                        stdout=table[1], stderr=table[2],
+                        env={**os.environ, **envs[i]} if envs[i] else None,
+                    )
+                except (FileNotFoundError, PermissionError, NotADirectoryError) as e:
+                    if isinstance(e, FileNotFoundError):
+                        reason = "No such file or directory" if "/" in argv[0] else "command not found"
+                        status = 127
+                    else:
+                        reason, status = "Permission denied", 126
+                    print(f"{argv[0]}: {reason}", file=sys.stderr)
+                    data = b"" if piped else None
+                    continue
+                try:
+                    out_bytes, _ = p.communicate(data if feed else None)
+                except KeyboardInterrupt:
+                    p.wait()
+                    print()
+                    return 130
+                status = exit_status(p.returncode)
+                data = out_bytes if piped else None
+        except KeyboardInterrupt:
+            print()
+            return 130
+        finally:
+            for f in opened:
+                f.close()
+        return status

@@ -25,6 +25,22 @@ native = (_rl is not None and os.name != "nt"
 _entries: List[str] = []  # used when native is False
 
 
+def use_builtin() -> None:
+    """Switch to the shell's own list, so a line editor other than readline can use it."""
+    global native
+    if native:  # keep what readline already holds
+        _entries[:] = [_rl.get_history_item(i)
+                       for i in range(1, _rl.get_current_history_length() + 1)][-MAX_ENTRIES:]
+    native = False
+
+
+def entries() -> List[str]:
+    """All entries, oldest first."""
+    if native:
+        return [_rl.get_history_item(i) for i in range(1, _rl.get_current_history_length() + 1)]
+    return list(_entries)
+
+
 def records_input() -> bool:
     """True when input() adds each typed line to the history by itself."""
     return native
