@@ -24,6 +24,12 @@ def st():
     return ShellState()
 
 
+def mark(text):
+    """The readline markers are left out on macOS."""
+    from myshell import prompt
+    return text if prompt.MARKERS else text.replace("\x01", "").replace("\x02", "")
+
+
 class TestShortPath:
     def test_home_becomes_tilde(self, home):
         assert short_path(str(home)) == "~"
@@ -68,7 +74,7 @@ class TestEscapes:
         assert expand_prompt(r"a\nb\e[0m", st) == "a\nb\x1b[0m"
 
     def test_color_wrappers_become_readline_markers(self, st):
-        assert expand_prompt(r"\[x\]", st) == "\x01x\x02"
+        assert expand_prompt(r"\[x\]", st) == mark("\x01x\x02")
 
     def test_backslash_and_unknown_escapes(self, st):
         assert expand_prompt(r"\\ \q", st) == "\\ \\q"
@@ -100,12 +106,12 @@ class TestDefaultPrompt:
 
     def test_color_terminal(self, home, st, monkeypatch):
         monkeypatch.setenv("TERM", "xterm")
-        assert build_prompt(st) == f"\x01\x1b[1;32m\x02~\x01\x1b[0m\x02 {CH} "
+        assert build_prompt(st) == mark(f"\x01\x1b[1;32m\x02~\x01\x1b[0m\x02 {CH} ")
 
     def test_failure_is_red_on_a_color_terminal(self, home, st, monkeypatch):
         monkeypatch.setenv("TERM", "xterm")
         st.last_status = 3
-        assert build_prompt(st).startswith("\x01\x1b[1;31m\x02[3]")
+        assert build_prompt(st).startswith(mark("\x01\x1b[1;31m\x02[3]"))
 
     def test_no_color_turns_color_off(self, home, st, monkeypatch):
         monkeypatch.setenv("TERM", "xterm")

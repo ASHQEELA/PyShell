@@ -88,23 +88,27 @@ def write(path: str) -> None:
     if native:
         try:
             _rl.write_history_file(path)
+        except Exception:
+            pass  # some readline builds fail here or write nothing. Check below.
+        if os.path.exists(path):
             return
-        except OSError:
-            pass  # some readline builds fail here. Write the list ourselves.
-    if True:
-        with open(path, "w", encoding="utf-8") as f:
-            f.writelines(line.replace("\n", " ") + "\n" for line in entries())
+    with open(path, "w", encoding="utf-8") as f:
+        f.writelines(line.replace("\n", " ") + "\n" for line in entries())
 
 
 def read(path: str) -> None:
     """Add the entries of a history file to the current history."""
     if native:
-        _rl.read_history_file(path)
-    else:
-        with open(path, encoding="utf-8") as f:
-            for line in f.read().splitlines():
-                if line:
-                    add(line)
+        try:
+            _rl.read_history_file(path)
+            return
+        except OSError:
+            if not os.path.exists(path):
+                raise  # no file yet
+    with open(path, encoding="utf-8") as f:
+        for line in f.read().splitlines():
+            if line:
+                add(line)
 
 
 def set_limit(limit: int = MAX_ENTRIES) -> None:
