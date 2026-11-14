@@ -4,6 +4,7 @@ import re
 import shutil
 from typing import Callable, Dict, List, Optional, TextIO
 
+from .paths import expand_user
 from . import compat, history
 from .coreutils import PORTABLE
 from .more_builtins import EXTRA_BUILTINS, unescape
@@ -58,7 +59,7 @@ def builtin_cd(state: ShellState, args: List[str], stdout: TextIO, stderr: TextI
     except OSError:
         old = os.environ.get("PWD", "")
     try:
-        os.chdir(os.path.expanduser(target))
+        os.chdir(expand_user(target))
     except OSError as e:
         print(f"cd: {target}: {e.strerror}", file=stderr)
         return 1

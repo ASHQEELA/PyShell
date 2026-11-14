@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set, TextIO
 
 from . import history
+from .paths import home_file
 from .jobs import JobControl
 
 if TYPE_CHECKING:
@@ -17,8 +18,8 @@ class ShellState:
     aliases: Dict[str, str] = field(default_factory=dict)
     jobs: JobControl = field(default_factory=JobControl)
     background_jobs: List[subprocess.Popen] = field(default_factory=list)  # portable path only
-    history_file: str = os.path.expanduser("~/.custom_shell_history")
-    rc_file: str = os.path.expanduser("~/.myshellrc")
+    history_file: str = field(default_factory=lambda: home_file(".custom_shell_history"))
+    rc_file: str = field(default_factory=lambda: home_file(".myshellrc"))
     last_status: int = 0
     variables: Dict[str, str] = field(default_factory=dict)  # shell variables, not exported
     executor: Optional["Executor"] = None
@@ -36,7 +37,7 @@ class ShellState:
     pending_traps: List[str] = field(default_factory=list)  # signals caught, not yet handled
     keep_going: bool = False  # tests and the guide set this so an expansion error never ends the shell
     last_duration: float = 0.0  # seconds the last interactive command took
-    progress_file: str = field(default_factory=lambda: os.path.expanduser("~/.myshell_progress.json"))
+    progress_file: str = field(default_factory=lambda: home_file(".myshell_progress.json"))
 
     def input_stream(self) -> TextIO:
         """Where a builtin reads its input: a redirect or pipe if there is one, else the terminal."""

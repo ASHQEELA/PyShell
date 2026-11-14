@@ -113,12 +113,13 @@ def slow_notice(state: ShellState) -> str:
 
 
 def short_path(path: str) -> str:
-    home = os.environ.get("HOME", "").rstrip("/")
+    home = os.environ.get("HOME", "").rstrip("/\\")
     if home:
         if path == home:
             return "~"
-        if path.startswith(home + "/"):
-            return "~" + path[len(home):]
+        for sep in {"/", os.sep}:
+            if path.startswith(home + sep):
+                return "~" + path[len(home):].replace(os.sep, "/")
     return path
 
 

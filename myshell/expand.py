@@ -5,6 +5,7 @@ import re
 import sys
 from typing import List, Optional, Tuple
 
+from .paths import expand_user
 from . import compat
 from .arith import evaluate
 from .errors import ShellError, ShellExit
@@ -640,7 +641,7 @@ def expand_word(tok: Token, state: ShellState, globbing: bool = True,
             add_double_quoted(text, state, fields)
         else:
             if idx == 0:
-                text = os.path.expanduser(text)
+                text = expand_user(text)
             for seg, from_expansion in expand_segments(text, state):
                 if from_expansion and splitting:
                     pieces = re.split(r"(\s+)", seg)  # odd positions hold the whitespace
@@ -686,7 +687,7 @@ def expand_pattern(tok: Token, state: ShellState) -> str:
             out.append(glob.escape(expand_vars(text, state)))
         else:
             if idx == 0:
-                text = os.path.expanduser(text)
+                text = expand_user(text)
             out.append("".join(seg for seg, _ in expand_segments(text, state)))
     return "".join(out)
 

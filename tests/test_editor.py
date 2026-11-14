@@ -3,6 +3,8 @@ import stat
 
 import pytest
 
+from conftest import unix_only
+
 pytest.importorskip("prompt_toolkit")
 
 from prompt_toolkit.document import Document  # noqa: E402
@@ -178,6 +180,7 @@ class TestLexerAdapter:
 
 
 class TestKindOf:
+    @unix_only
     def test_builtin_alias_function_path(self, state, tmp_path, monkeypatch):
         d = tmp_path / "bin"
         d.mkdir()
@@ -192,6 +195,7 @@ class TestKindOf:
         assert kind_of("fn") == "command" and kind_of("mytool") == "command"
         assert kind_of("nothing_here") == "unknown"
 
+    @unix_only
     def test_cache_follows_path(self, state, tmp_path, monkeypatch):
         d = tmp_path / "bin"
         d.mkdir()

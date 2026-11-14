@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from conftest import unix_only
@@ -32,7 +34,8 @@ class TestTestBuiltin:
         assert evaluate_test(["-s", str(f)]) and not evaluate_test(["-s", str(empty)])
         assert not evaluate_test(["-e", str(tmp_path / "none")])
         assert evaluate_test(["-r", str(f)]) and evaluate_test(["-w", str(f)])
-        assert not evaluate_test(["-x", str(f)])
+        if os.name != "nt":  # Windows treats every file as executable
+            assert not evaluate_test(["-x", str(f)])
 
     @pytest.mark.parametrize("args, message", [
         (["-q", "a"], "unary operator expected"),

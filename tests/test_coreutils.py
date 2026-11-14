@@ -70,7 +70,7 @@ class TestCat:
     def test_files_and_stdin(self, call, dirs):
         _, work = dirs
         a = write(work / "a", "1\n2\n")
-        assert call("cat", a, a)[1] == "1\n2\n1\n2\n"
+        assert call("cat", a, a)[1].replace("\r\n", "\n") == "1\n2\n1\n2\n"
         assert call("cat", stdin="in\n")[1] == "in\n"
         assert call("cat", "-", stdin="dash\n")[1] == "dash\n"
 
@@ -81,7 +81,7 @@ class TestCat:
         _, work = dirs
         a = write(work / "a", "ok\n")
         status, out, err = call("cat", "nope", a)
-        assert status == 1 and out == "ok\n" and "nope: No such file" in err
+        assert status == 1 and out.replace("\r\n", "\n") == "ok\n" and "nope: No such file" in err
 
 
 class TestHead:

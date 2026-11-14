@@ -2,6 +2,8 @@ import os
 
 import pytest
 
+from conftest import unix_only
+
 from myshell.prompt import build_prompt, expand_prompt, short_path
 from myshell.state import ShellState
 
@@ -85,6 +87,7 @@ class TestEscapes:
     def test_job_count(self, st):
         assert expand_prompt(r"\j", st) == "0"
 
+    @unix_only
     def test_deleted_directory_does_not_crash(self, tmp_path, monkeypatch, st):
         gone = tmp_path / "gone"
         gone.mkdir()

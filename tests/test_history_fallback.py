@@ -62,7 +62,7 @@ class TestOwnList:
         assert fallback.length() == 3
 
     def test_use_builtin_switches_mode_and_keeps_readline_entries(self, monkeypatch):
-        import readline
+        readline = pytest.importorskip("readline")
         monkeypatch.setattr(history, "native", True)
         monkeypatch.setattr(history, "_entries", [])
         readline.clear_history()
