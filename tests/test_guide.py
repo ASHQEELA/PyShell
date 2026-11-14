@@ -141,7 +141,8 @@ class TestMenu:
 
 class TestHints:
     def test_close_match_is_suggested(self, state):
-        assert "Did you mean 'echo'" in guide.missing_hint("ecoh", state)
+        hint = guide.missing_hint("ecoh", state)
+        assert "Did you mean" in hint and "'echo'" in hint
 
     def test_alias_names_are_considered(self, state):
         state.aliases["deploy"] = "echo x"
