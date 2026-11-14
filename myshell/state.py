@@ -1,5 +1,6 @@
 """Shell state: aliases, variables, jobs, history and the last exit status."""
 import os
+import sys
 import subprocess
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set, TextIO
@@ -100,5 +101,6 @@ class ShellState:
     def save_history(self) -> None:
         try:
             history.write(self.history_file)
-        except Exception:
-            pass
+        except Exception as e:
+            if os.environ.get("MYSHELL_DEBUG"):
+                print(f"history not saved: {e!r}", file=sys.stderr)

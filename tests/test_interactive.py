@@ -168,7 +168,7 @@ def test_ctrl_d_ends_a_heredoc_with_a_warning(pty_shell):
 
 def test_history_lists_and_persists(pty_shell, dirs):
     home, _ = dirs
-    s = pty_shell({"TERM": "dumb"})
+    s = pty_shell({"TERM": "dumb", "MYSHELL_DEBUG": "1"})
     s.expect(f"~ {CH} ")
     s.send("echo alpha\n")
     s.expect(f"~ {CH} ")
@@ -182,6 +182,7 @@ def test_history_lists_and_persists(pty_shell, dirs):
         if hist.exists() and "alpha" in hist.read_text():
             break
         time.sleep(0.1)
+    assert hist.exists(), f"no history file. Folder: {os.listdir(home)}. Output: {s.buffer!r}"
     assert re.search(r"echo(\\040| )alpha", hist.read_text())
     s2 = pty_shell({"TERM": "dumb"})
     s2.expect(f"~ {CH} ")

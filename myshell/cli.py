@@ -111,6 +111,8 @@ def run_interactive(state: ShellState) -> int:
             except KeyboardInterrupt:
                 print()
             state.last_duration = time.monotonic() - started
+            if interactive:
+                state.save_history()  # saved after every line, so a killed shell loses nothing
             if state.pending_traps:
                 state.run_pending_traps()
             if interactive and line.split()[0] != "guide":
