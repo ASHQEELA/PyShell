@@ -52,7 +52,7 @@ class TestOutput:
 
     def test_dev_null(self, both):
         r = both("ls /nonexist 2>/dev/null\necho $?")
-        assert r.out == "2\n"
+        assert r.out in ("1\n", "2\n")  # GNU ls returns 2, macOS ls returns 1
         assert r.err == ""
 
 

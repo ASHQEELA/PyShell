@@ -2,10 +2,18 @@
 import getpass
 import os
 import socket
+import sys
 import time
 from typing import List, Optional
 
 from .state import ShellState
+
+try:
+    import readline as _readline
+    # The libedit on macOS prints the text between \x01 and \x02 out of order, so no markers there.
+    MARKERS = not (sys.platform == "darwin" and "libedit" in (_readline.__doc__ or ""))
+except ImportError:
+    MARKERS = True
 
 
 # Prompt
@@ -155,9 +163,9 @@ def expand_prompt(template: str, state: ShellState) -> str:
         elif esc == "e":
             out.append("\x1b")
         elif esc == "[":
-            out.append("\x01")  # readline: the text up to \] takes no screen width
+            out.append("\x01" if MARKERS else "")  # readline: the text up to \] takes no screen width
         elif esc == "]":
-            out.append("\x02")
+            out.append("\x02" if MARKERS else "")
         elif esc == "\\":
             out.append("\\")
         else:

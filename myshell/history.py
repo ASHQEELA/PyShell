@@ -86,10 +86,14 @@ def forget_last() -> None:
 
 def write(path: str) -> None:
     if native:
-        _rl.write_history_file(path)
-    else:
+        try:
+            _rl.write_history_file(path)
+            return
+        except OSError:
+            pass  # some readline builds fail here. Write the list ourselves.
+    if True:
         with open(path, "w", encoding="utf-8") as f:
-            f.writelines(line.replace("\n", " ") + "\n" for line in _entries)
+            f.writelines(line.replace("\n", " ") + "\n" for line in entries())
 
 
 def read(path: str) -> None:

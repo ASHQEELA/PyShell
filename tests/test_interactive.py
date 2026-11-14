@@ -2,6 +2,7 @@
 and wait for text to appear, so they do not depend on timing."""
 import re
 import os
+import signal
 import sys
 
 import pytest
@@ -71,7 +72,7 @@ def test_ctrl_z_stops_and_fg_resumes(pty_shell):
     s.expect("ready")
     s.send("\x1a")
     s.expect("Stopped")
-    s.expect("[148]")
+    s.expect(f"[{128 + signal.SIGTSTP}]")
     s.send("jobs\n")
     s.expect("[1]+  Stopped")
     s.send("fg\n")
@@ -176,9 +177,12 @@ def test_history_lists_and_persists(pty_shell, dirs):
     assert "    1  echo alpha" in out and "    2  history" in out
     s.send("exit\n")
     import time
-    time.sleep(0.5)
-    import re
-    assert re.search(r"echo(\\040| )alpha", (home / ".custom_shell_history").read_text())
+    hist = home / ".custom_shell_history"
+    for _ in range(80):  # the shell writes the file as it exits
+        if hist.exists() and "alpha" in hist.read_text():
+            break
+        time.sleep(0.1)
+    assert re.search(r"echo(\\040| )alpha", hist.read_text())
     s2 = pty_shell({"TERM": "dumb"})
     s2.expect(f"~ {CH} ")
     s2.send("history\n")
