@@ -1,8 +1,9 @@
 import os
-import readline
 import stat
 
 import pytest
+
+readline = pytest.importorskip("readline")  # Windows has no readline
 
 from myshell.completion import Completer, complete_line, escape_word, unescape_word
 

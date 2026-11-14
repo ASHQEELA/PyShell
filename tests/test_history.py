@@ -1,6 +1,6 @@
-import readline
-
 import pytest
+
+readline = pytest.importorskip("readline")  # Windows has no readline
 
 from myshell.builtins import builtin_history
 
