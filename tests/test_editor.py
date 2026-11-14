@@ -63,6 +63,7 @@ def test_suggestion_sees_lines_added_between_prompts(reader, pipe):
     assert reader.read("$ ") == "grep needle haystack"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="the Windows test input pipe drops Ctrl+R search keys")
 def test_ctrl_r_search(reader, pipe):
     for line in ("ls -l", "grep needle file", "echo done"):
         history.add(line)
